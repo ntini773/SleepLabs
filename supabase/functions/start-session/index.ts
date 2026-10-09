@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hash, json } from "../_shared/http.ts";
+import { logError } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -89,8 +90,8 @@ Deno.serve(async (request) => {
     .single();
 
   if (participantError || !participant) {
-    console.error("participantError:", participantError);
-    return json({ error: `Could not start session: ${participantError?.message ?? "unknown error"}` }, 500);
+    logError("start-session: participant insert failed:", participantError?.message ?? "no row returned");
+    return json({ error: "Could not start your session. Please try again." }, 500);
   }
 
   // Randomly assign condition server-side.
@@ -108,10 +109,11 @@ Deno.serve(async (request) => {
     .single();
 
   if (sessionError || !session) {
-    console.error("sessionError:", sessionError);
-    // Delete orphan participant if session insert fails
-    await admin.from("participants").delete().eq("id", participant.id);
-    return json({ error: `Could not create listening session: ${sessionError?.message ?? "unknown error"}` }, 500);
+    logError("start-session: session insert failed:", sessionError?.message ?? "no row returned");
+    // Delete the orphan participant so the person can try again.
+    const { error: cleanupError } = await admin.from("participants").delete().eq("id", participant.id);
+    if (cleanupError) logError("start-session: could not remove orphan participant:", cleanupError.message);
+    return json({ error: "Could not start your session. Please try again." }, 500);
   }
 
   return json({

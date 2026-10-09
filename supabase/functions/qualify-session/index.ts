@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hash, json } from "../_shared/http.ts";
+import { logError } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -56,14 +57,16 @@ Deno.serve(async (request) => {
     .eq("id", session.id);
 
   if (updateError) {
-    return json({ error: `Could not qualify session: ${updateError.message}` }, 500);
+    logError("qualify-session: update failed:", updateError.message);
+    return json({ error: "Could not save your progress. Please try again." }, 500);
   }
 
-  await admin.from("playback_events").insert({
+  const { error: eventError } = await admin.from("playback_events").insert({
     session_id: session.id,
     event_type: "sleepy",
     position_seconds: Math.floor(numListened),
   });
+  if (eventError) logError("qualify-session: could not log sleepy event:", eventError.message);
 
   return json({ releaseAt });
 });

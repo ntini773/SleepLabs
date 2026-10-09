@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, getBearer, json } from "../_shared/http.ts";
+import { logError } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -55,7 +56,7 @@ Deno.serve(async (request) => {
         .from("participants")
         .update({ auth_user_id: auth.user.id })
         .eq("id", byEmail.id);
-      if (linkError) console.error("Could not link auth user to participant:", linkError.message);
+      if (linkError) logError("survey-access: could not link auth user:", linkError.message);
     }
   }
 
@@ -74,7 +75,7 @@ Deno.serve(async (request) => {
     .maybeSingle();
 
   if (sessionError) {
-    console.error("Could not load session for participant:", sessionError.message);
+    logError("survey-access: could not load session:", sessionError.message);
     return json({ error: "Could not check your reflection. Please try again later." }, 500);
   }
 
@@ -145,7 +146,7 @@ Deno.serve(async (request) => {
     });
 
   if (insertError) {
-    console.error("Could not save survey response:", insertError.message);
+    logError("survey-access: could not save survey response:", insertError.message);
     return json({ error: "Could not save your reflection. Please try again later." }, 409);
   }
 
@@ -154,7 +155,7 @@ Deno.serve(async (request) => {
     .update({ status: "survey_submitted" })
     .eq("id", session.id);
   if (statusError) {
-    console.error("Could not set survey_submitted for session", session.id, statusError.message);
+    logError(`survey-access: could not set survey_submitted for session ${session.id}:`, statusError.message);
   }
 
   return json({ available: false, submitted: true });

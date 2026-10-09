@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hash, json } from "../_shared/http.ts";
+import { hideEmails } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -110,7 +111,7 @@ Deno.serve(async (request) => {
 
   // If anything below fails, give the attempt back so our error does not lock the person out.
   async function fail(reason: string) {
-    console.error("resend-invitation failed for session", session!.id, reason);
+    console.error("resend-invitation failed for session", session!.id, hideEmails(reason));
     await admin.from("study_sessions").update(previous).eq("id", session!.id);
     return json({ status: "error", error: "Could not resend the email. Please try again in a moment." }, 502);
   }

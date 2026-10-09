@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/http.ts";
+import { hideEmails } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -24,11 +25,6 @@ type SendOutcome =
   | { outcome: "sent" }
   | { outcome: "skipped" } // another worker claimed it first
   | { outcome: "failed"; error: string };
-
-// Logs must never contain a participant email. This hides anything that looks like one.
-function hideEmails(text: string) {
-  return text.replace(/[^\s@]+@[^\s@]+/g, "[email hidden]");
-}
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
