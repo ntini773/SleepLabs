@@ -6,7 +6,17 @@ const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-const delaySeconds = Number(Deno.env.get("SURVEY_DELAY_SECONDS") ?? "60");
+// Seconds between qualification and the survey email. A bad value stops this function at start-up.
+function readSurveyDelaySeconds(): number {
+  const raw = Deno.env.get("SURVEY_DELAY_SECONDS")?.trim();
+  if (!raw) return 60;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("SURVEY_DELAY_SECONDS must be a whole number of seconds, 0 or more.");
+  }
+  return value;
+}
+const delaySeconds = readSurveyDelaySeconds();
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
