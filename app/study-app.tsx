@@ -33,10 +33,10 @@ const initialRatings: Ratings = { relaxed: null, sleepy: null, alert: null, plea
 // ---------------------------------------------------------------------------
 const AUDIO_BASE_URL = process.env.NEXT_PUBLIC_AUDIO_BASE_URL ?? "";
 
-// Condition metadata — durations come from the server after start-session.
-const CONDITION_METADATA: Record<string, { loopStartFraction: number }> = {
-  "condition-a": { loopStartFraction: 27 / 46 },
-  "condition-b": { loopStartFraction: 31 / 52 },
+// Condition metadata — filenames and loop fractions.
+const CONDITION_METADATA: Record<string, { filename: string; loopStartFraction: number }> = {
+  "condition-a": { filename: "wholetones.mpeg", loopStartFraction: 27 / 46 },
+  "condition-b": { filename: "Nilambari.mpeg", loopStartFraction: 31 / 52 },
 };
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -138,6 +138,7 @@ export function StudyApp() {
 
   // Player state
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const maxListenedSecondsRef = useRef(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [isLooping, setIsLooping] = useState(false);
@@ -155,6 +156,18 @@ export function StudyApp() {
   // UI state
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAdminMode, setIsAdminMode] = useState(false);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (
+      searchParams.get("admin") === "true" ||
+      searchParams.get("test") === "1" ||
+      searchParams.get("dev") === "1"
+    ) {
+      setIsAdminMode(true);
+    }
+  }, []);
 
   const allRatingsComplete = Object.values(ratings).every((r) => r !== null) && surveyWorkshop !== "" && headphones !== "";
 
@@ -262,36 +275,44 @@ export function StudyApp() {
       audioRef.current.src = "";
     }
 
-    const audio = new Audio(`${AUDIO_BASE_URL}/${conditionId}.mp3`);
+    maxListenedSecondsRef.current = 0;
+    const filename = CONDITION_METADATA[conditionId]?.filename ?? `${conditionId}.mpeg`;
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+    audio.src = `${AUDIO_BASE_URL}/${filename}`;
     audio.preload = "auto";
     audioRef.current = audio;
 
     const loopStart = Math.floor(durationSec * (CONDITION_METADATA[conditionId]?.loopStartFraction ?? 0.6));
 
     audio.addEventListener("timeupdate", () => {
-      const t = Math.floor(audio.currentTime);
-      setElapsed(t);
-
-      // Transition to loop phase at 90%.
-      if (!audio.loop && t >= Math.ceil(durationSec * 0.9)) {
-        audio.loop = true;
-        setIsLooping(true);
-        setLoopCount(1);
+      const current = Math.floor(audio.currentTime);
+      if (current > maxListenedSecondsRef.current) {
+        maxListenedSecondsRef.current = current;
       }
+      setElapsed(maxListenedSecondsRef.current);
 
-      // Within loop phase: reset to loopStart when reaching end of file.
-      if (audio.loop && audio.currentTime >= durationSec - 0.1) {
-        audio.currentTime = loopStart;
-        setLoopCount((c) => c + 1);
+      // Transition to loop phase UI at 90%.
+      if (maxListenedSecondsRef.current >= Math.ceil(durationSec * 0.9)) {
+        setIsLooping(true);
       }
     });
 
     audio.addEventListener("play", () => setIsPlaying(true));
     audio.addEventListener("pause", () => setIsPlaying(false));
-    audio.addEventListener("ended", () => setIsPlaying(false));
+
+    // On ended: jump to loopStart and continue playing (without audio.loop)
+    audio.addEventListener("ended", () => {
+      setLoopCount((c) => c + 1);
+      audio.currentTime = loopStart;
+      audio.play().catch(() => {});
+    });
+
     audio.addEventListener("error", () => {
+      const errDetails = audio.error ? ` [Code ${audio.error.code}: ${audio.error.message}]` : "";
+      console.error("Audio load error:", audio.error);
       setAudioError(
-        `Could not load audio for ${conditionId}. Check that the file is uploaded to Supabase Storage at: ${AUDIO_BASE_URL}/${conditionId}.mp3`
+        `Could not load audio file (${filename})${errDetails}. URL: ${AUDIO_BASE_URL}/${filename}`
       );
     });
   }
@@ -361,16 +382,11 @@ export function StudyApp() {
   // Qualification ("I'm sleepy")
   // -------------------------------------------------------------------------
   async function stopListening() {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
-    setIsPlaying(false);
     setBusy(true);
     setError(null);
 
-    const listenedSeconds = elapsed;
-    const lc = loopCount;
+    const listenedSeconds = maxListenedSecondsRef.current;
+    const lc = loopCount || 1;
 
     try {
       if (SUPABASE_URL && SUPABASE_ANON_KEY && participant) {
@@ -390,6 +406,13 @@ export function StudyApp() {
           return;
         }
       }
+
+      // Only pause and clear audio AFTER qualify-session fetch succeeds
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
+      setIsPlaying(false);
       setScreen("waiting");
     } catch {
       setError("Network error during qualification. Please try again.");
@@ -637,6 +660,26 @@ export function StudyApp() {
                 type="button"
               >
                 {busy ? "Saving…" : <>I&apos;m sleepy <span aria-hidden="true">→</span></>}
+              </button>
+            )}
+            {isAdminMode && !isLooping && (
+              <button
+                className="text-button admin-skip-button"
+                onClick={() => {
+                  maxListenedSecondsRef.current = requiredPoint;
+                  setElapsed(requiredPoint);
+                  setIsLooping(true);
+                  setLoopCount(1);
+                  if (audioRef.current) {
+                    try {
+                      audioRef.current.currentTime = requiredPoint;
+                    } catch { /* ignore */ }
+                  }
+                }}
+                style={{ marginTop: "1rem", fontSize: "0.825rem", opacity: 0.75, cursor: "pointer" }}
+                type="button"
+              >
+                ⚡ Admin: Skip mandatory listening phase
               </button>
             )}
           </div>

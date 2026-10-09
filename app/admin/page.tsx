@@ -105,10 +105,6 @@ export default function AdminPage() {
         body: JSON.stringify({
           email: adminEmail,
           create_user: false,
-          options: {
-            // Redirect back to /admin so the hash is consumed by this page.
-            email_redirect_to: `${window.location.origin}${window.location.pathname}`,
-          },
         }),
       });
 

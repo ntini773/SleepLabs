@@ -1,7 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hash, json } from "../_shared/http.ts";
 
-const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const admin = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
 const durations = { "condition-a": 180, "condition-b": 180 } as const;
 
 Deno.serve(async (request) => {
@@ -12,47 +15,66 @@ Deno.serve(async (request) => {
   const { email, rollNumber, displayName, workshop } = body as Record<string, string | undefined>;
   const fromWorkshop = workshop === "yes";
 
+  const normalizedEmail = email?.toLowerCase().trim();
+  const normalizedRoll = rollNumber?.trim();
+
   // Validate required fields.
-  if (!/^\S+@\S+\.\S+$/.test(email ?? "")) {
+  if (!/^\S+@\S+\.\S+$/.test(normalizedEmail ?? "")) {
     return json({ error: fromWorkshop ? "Enter a valid college email." : "Enter a valid email." }, 400);
   }
-  if (fromWorkshop && !/^[A-Za-z0-9/_-]{3,40}$/.test(rollNumber ?? "")) {
+  if (fromWorkshop && !/^[A-Za-z0-9/_-]{3,40}$/.test(normalizedRoll ?? "")) {
     return json({ error: "Enter a valid roll number." }, 400);
   }
   if (!String(displayName ?? "").trim()) {
     return json({ error: "Enter your full name." }, 400);
   }
 
-  // Check for an existing participant record to avoid duplicate sessions.
-  // For workshop participants, match on either email OR roll number so that
-  // re-registration attempts with a different field still hit the guard.
-  const duplicateFilter = fromWorkshop
-    ? `email.eq.${email!.toLowerCase()},roll_number.eq.${rollNumber!.trim()}`
-    : `email.eq.${email!.toLowerCase()}`;
-  const { data: existing } = await admin
+  // Parameterized lookups for existing email
+  const { data: existingEmail } = await admin
     .from("participants")
     .select("id")
-    .or(duplicateFilter)
+    .eq("email", normalizedEmail!)
     .maybeSingle();
-  if (existing) {
+
+  if (existingEmail) {
     return json(
       { error: "A session already exists for these details. Return using the same device or your survey email link." },
       409,
     );
   }
 
+  // Parameterized lookup for existing roll_number (if workshop)
+  if (fromWorkshop && normalizedRoll) {
+    const { data: existingRoll } = await admin
+      .from("participants")
+      .select("id")
+      .eq("roll_number", normalizedRoll)
+      .maybeSingle();
+
+    if (existingRoll) {
+      return json(
+        { error: "A session already exists for these details. Return using the same device or your survey email link." },
+        409,
+      );
+    }
+  }
+
   // Create participant — persist from_workshop so admin reporting has it.
   const { data: participant, error: participantError } = await admin
     .from("participants")
     .insert({
-      email: email!.toLowerCase(),
-      roll_number: fromWorkshop ? rollNumber!.trim() : null,
+      email: normalizedEmail!,
+      roll_number: fromWorkshop ? normalizedRoll : null,
       display_name: String(displayName ?? "").trim() || null,
       from_workshop: fromWorkshop,
     })
     .select("id")
     .single();
-  if (participantError) return json({ error: "Could not start the session." }, 500);
+
+  if (participantError || !participant) {
+    console.error("participantError:", participantError);
+    return json({ error: `Could not start session: ${participantError?.message ?? "unknown error"}` }, 500);
+  }
 
   // Randomly assign condition server-side.
   const conditionId: keyof typeof durations = Math.random() < 0.5 ? "condition-a" : "condition-b";
@@ -67,7 +89,13 @@ Deno.serve(async (request) => {
     })
     .select("id, condition_id, duration_seconds")
     .single();
-  if (sessionError) return json({ error: "Could not create the listening session." }, 500);
+
+  if (sessionError || !session) {
+    console.error("sessionError:", sessionError);
+    // Delete orphan participant if session insert fails
+    await admin.from("participants").delete().eq("id", participant.id);
+    return json({ error: `Could not create listening session: ${sessionError?.message ?? "unknown error"}` }, 500);
+  }
 
   return json({
     sessionId: session.id,

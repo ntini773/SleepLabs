@@ -1,0 +1,17 @@
+[functions.start-session]
+verify_jwt = false
+
+[functions.qualify-session]
+verify_jwt = false
+
+[functions.study-status]
+verify_jwt = false
+
+[functions.morning-invitations]
+verify_jwt = false
+
+[functions.survey-access]
+verify_jwt = false
+
+[functions.admin-dashboard]
+verify_jwt = false

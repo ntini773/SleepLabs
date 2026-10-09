@@ -7,25 +7,23 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "osx-arm64", "osx-64"]
 
 [tasks]
-dev     = { cmd = "npm run dev",   description = "Start Next.js dev server" }
-build   = { cmd = "npm run build", description = "Production build" }
-lint    = { cmd = "npm run lint",  description = "Lint and type-check" }
-install = { cmd = "npm install",   description = "Install npm dependencies" }
+dev      = { cmd = "npm run dev",   description = "Start Next.js dev server" }
+build    = { cmd = "npm run build", description = "Production build" }
+lint     = { cmd = "npm run lint",  description = "Lint and type-check" }
+install  = { cmd = "npm install",   description = "Install npm dependencies" }
+supabase = { cmd = "npx --yes supabase", description = "Run Supabase CLI via npx" }
 
 # Deploy all six edge functions to the linked Supabase project.
-# Run `supabase link --project-ref <your-project-ref>` first.
+# Run `pixi run supabase link --project-ref <your-project-ref>` first.
 deploy-functions = { cmd = """
-  supabase functions deploy start-session &&
-  supabase functions deploy qualify-session &&
-  supabase functions deploy study-status &&
-  supabase functions deploy morning-invitations &&
-  supabase functions deploy survey-access &&
-  supabase functions deploy admin-dashboard
+  npx --yes supabase functions deploy start-session &&
+  npx --yes supabase functions deploy qualify-session &&
+  npx --yes supabase functions deploy study-status &&
+  npx --yes supabase functions deploy morning-invitations &&
+  npx --yes supabase functions deploy survey-access &&
+  npx --yes supabase functions deploy admin-dashboard
 """, description = "Deploy all Supabase edge functions" }
 
 [dependencies]
 # Node.js LTS 20 — matches current system version
 nodejs = ">=20,<21"
-
-# Uncomment when ready, then run `pixi install`:
-# supabase = "*"   # Supabase CLI (conda-forge)
