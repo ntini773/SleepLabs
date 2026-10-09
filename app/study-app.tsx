@@ -158,6 +158,12 @@ export function StudyApp() {
   const [error, setError] = useState<string | null>(null);
   const [isAdminMode, setIsAdminMode] = useState(false);
 
+  // Survey release time (qualified_at + SURVEY_DELAY_SECONDS) and the "Resend email" button
+  const [releaseAt, setReleaseAt] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendNotice, setResendNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     if (
@@ -210,6 +216,7 @@ export function StudyApp() {
               durationSeconds: data.durationSeconds ?? 0,
             };
             setParticipant(p);
+            if (typeof data.releaseAt === "string") setReleaseAt(data.releaseAt);
             if (data.state === "listening") {
               setScreen("listen");
             } else if (data.state === "waiting") {
@@ -345,7 +352,11 @@ export function StudyApp() {
       });
       const data = await r.json();
       if (!r.ok) {
-        if (r.status === 409) { setScreen("already_registered"); return; }
+        if (r.status === 409) {
+          setResendNotice(null);
+          setScreen("already_registered");
+          return;
+        }
         setError(data.error ?? "Could not start session.");
         return;
       }
@@ -405,6 +416,7 @@ export function StudyApp() {
           setBusy(false);
           return;
         }
+        if (typeof data.releaseAt === "string") setReleaseAt(data.releaseAt);
       }
 
       // Only pause and clear audio AFTER qualify-session fetch succeeds
@@ -418,6 +430,88 @@ export function StudyApp() {
       setError("Network error during qualification. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Tick once a second on the waiting screen so the Resend button appears when the wait is over.
+  useEffect(() => {
+    if (screen !== "waiting" || !releaseAt) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [screen, releaseAt]);
+
+  // -------------------------------------------------------------------------
+  // Resend the survey email.
+  // "device": waiting screen, identified by the device token.
+  // "details": already-registered screen, identified by the email / roll number typed.
+  // The server always sends to the email saved at registration, and only after the wait time.
+  // -------------------------------------------------------------------------
+  async function resendInvitation(mode: "device" | "details") {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setResendNotice({ kind: "error", text: "Supabase is not configured." });
+      return;
+    }
+    setResendBusy(true);
+    setResendNotice(null);
+    try {
+      const payload =
+        mode === "device" && participant
+          ? { deviceToken: participant.deviceToken }
+          : { email, rollNumber: workshop === "yes" ? rollNumber : "" };
+      const r = await fetch(apiUrl("resend-invitation"), {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(() => ({}));
+      switch (data.status) {
+        case "sent":
+          setResendNotice({
+            kind: "info",
+            text: "A fresh link is on its way. It can take a minute, and it may land in spam or junk. Please use the newest email only.",
+          });
+          break;
+        case "submitted":
+          setResendNotice({ kind: "info", text: "Your reflection is already complete. Thank you!" });
+          break;
+        case "too_early": {
+          const when = data.availableAt
+            ? new Date(data.availableAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+            : "the release time";
+          setResendNotice({ kind: "info", text: `Your reflection email is not due yet. It will be sent after ${when}.` });
+          break;
+        }
+        case "pending":
+          setResendNotice({
+            kind: "info",
+            text: "Your reflection email is being sent right now. Please check your inbox (and spam) and try again in a minute or two if it has not arrived.",
+          });
+          break;
+        case "not_ready":
+          setResendNotice({
+            kind: "info",
+            text: "No reflection email is due yet. It is sent after you finish listening and the release time has passed. If you have not finished listening, return on the device you started with.",
+          });
+          break;
+        case "too_soon": {
+          const mins = Math.max(1, Math.ceil((data.retryAfterSeconds ?? 300) / 60));
+          setResendNotice({
+            kind: "info",
+            text: `We sent one a moment ago. Please wait about ${mins} minute${mins === 1 ? "" : "s"} before asking again.`,
+          });
+          break;
+        }
+        case "limit":
+          setResendNotice({ kind: "error", text: "You have reached the resend limit. Please contact the study team." });
+          break;
+        default:
+          setResendNotice({ kind: "error", text: data.error ?? "Could not resend the email. Please try again in a moment." });
+      }
+    } catch {
+      setResendNotice({ kind: "error", text: "Network error. Please check your connection." });
+    } finally {
+      setResendBusy(false);
     }
   }
 
@@ -605,6 +699,15 @@ export function StudyApp() {
             A session already exists for these details. Return on the same device you used to start,
             or use the secure link in your invitation email.
           </p>
+          <button className="button primary" disabled={resendBusy} onClick={() => resendInvitation("details")} type="button">
+            {resendBusy ? "Sending…" : "Didn't get the email? Resend it"}
+          </button>
+          {resendNotice && (
+            <p className={resendNotice.kind === "error" ? "error-message" : "microcopy"} role="status">
+              {resendNotice.text}
+            </p>
+          )}
+          <p className="microcopy">The link goes to the email address you registered with.</p>
         </section>
       )}
 
@@ -697,6 +800,25 @@ export function StudyApp() {
             Your reflection will unlock shortly. Return on this device after signing in, or use the
             secure link you receive by email.
           </p>
+          {participant?.deviceToken && releaseAt && (
+            now >= Date.parse(releaseAt) ? (
+              <>
+                <button className="button primary" disabled={resendBusy} onClick={() => resendInvitation("device")} type="button">
+                  {resendBusy ? "Sending…" : "Didn't get the email? Resend it"}
+                </button>
+                {resendNotice && (
+                  <p className={resendNotice.kind === "error" ? "error-message" : "microcopy"} role="status">
+                    {resendNotice.text}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="microcopy">
+                If your email has not arrived, you can ask for a new one after{" "}
+                {new Date(releaseAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.
+              </p>
+            )
+          )}
           {error && <p className="error-message" role="alert">{error}</p>}
         </section>
       )}
