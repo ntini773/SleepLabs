@@ -5,7 +5,24 @@ const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-const durations = { "condition-a": 180, "condition-b": 180 } as const;
+// Listening length for each condition, in seconds. These MUST equal the real length of the
+// audio files in Storage (condition-a.mp3 and condition-b.mp3). If they differ, the 90%
+// check and the loop timing will be wrong.
+// A bad value stops this function at start-up, so no session can be created with a wrong length.
+function readDurationSeconds(name: string, fallback: number): number {
+  const raw = Deno.env.get(name)?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive whole number of seconds.`);
+  }
+  return value;
+}
+
+const durations = {
+  "condition-a": readDurationSeconds("DURATION_CONDITION_A", 180),
+  "condition-b": readDurationSeconds("DURATION_CONDITION_B", 180),
+} as const;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

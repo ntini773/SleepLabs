@@ -156,7 +156,8 @@ export function StudyApp() {
   // UI state
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  // Test-only skip button. Shown only in a build with NEXT_PUBLIC_ENABLE_TEST_MODE=1 and ?test=1.
+  const [isTestMode, setIsTestMode] = useState(false);
 
   // Survey release time (qualified_at + SURVEY_DELAY_SECONDS) and the "Resend email" button
   const [releaseAt, setReleaseAt] = useState<string | null>(null);
@@ -166,12 +167,8 @@ export function StudyApp() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
-    if (
-      searchParams.get("admin") === "true" ||
-      searchParams.get("test") === "1" ||
-      searchParams.get("dev") === "1"
-    ) {
-      setIsAdminMode(true);
+    if (process.env.NEXT_PUBLIC_ENABLE_TEST_MODE === "1" && searchParams.get("test") === "1") {
+      setIsTestMode(true);
     }
   }, []);
 
@@ -397,7 +394,6 @@ export function StudyApp() {
     setError(null);
 
     const listenedSeconds = maxListenedSecondsRef.current;
-    const lc = loopCount || 1;
 
     try {
       if (SUPABASE_URL && SUPABASE_ANON_KEY && participant) {
@@ -407,7 +403,7 @@ export function StudyApp() {
           body: JSON.stringify({
             deviceToken: participant.deviceToken,
             listenedSeconds,
-            loopCount: lc,
+            loopCount, // Only real repeats. The audio never repeated if this is 0.
           }),
         });
         const data = await r.json();
@@ -765,14 +761,13 @@ export function StudyApp() {
                 {busy ? "Saving…" : <>I&apos;m sleepy <span aria-hidden="true">→</span></>}
               </button>
             )}
-            {isAdminMode && !isLooping && (
+            {process.env.NEXT_PUBLIC_ENABLE_TEST_MODE === "1" && isTestMode && !isLooping && (
               <button
                 className="text-button admin-skip-button"
                 onClick={() => {
                   maxListenedSecondsRef.current = requiredPoint;
                   setElapsed(requiredPoint);
                   setIsLooping(true);
-                  setLoopCount(1);
                   if (audioRef.current) {
                     try {
                       audioRef.current.currentTime = requiredPoint;
