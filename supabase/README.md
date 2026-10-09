@@ -58,7 +58,7 @@ npx supabase db push
 
 ## 3. Upload the audio files
 
-1. Open **Storage** and create a bucket named `audio`.
+1. Open **Storage** and create a bucket. This guide uses the name `audio`. You can use another name, but the path in `NEXT_PUBLIC_AUDIO_BASE_URL` must use the same name. `.env.example` shows `Audio_files` as an example, so keep the two in step.
 2. Set the bucket to **Public**. Participants only need read access.
 3. Upload the two files with these exact names. The app loads them by name from `CONDITION_METADATA` in `app/study-app.tsx`:
    - `wholetones.mpeg` (condition A)
@@ -66,7 +66,7 @@ npx supabase db push
 
    If you use different file names, change `CONDITION_METADATA` first.
 4. The public base URL has this form:
-   `https://<PROJECT_REF>.supabase.co/storage/v1/object/public/audio`
+   `https://<PROJECT_REF>.supabase.co/storage/v1/object/public/<BUCKET_NAME>`
 5. Measure each file. The length in seconds must match `DURATION_CONDITION_A` and `DURATION_CONDITION_B` (step 6).
 
 ---
