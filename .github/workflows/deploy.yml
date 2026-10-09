@@ -30,12 +30,47 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
+      - name: Check required build secrets
+        # Stop early with a clear message. Never print the values.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_AUDIO_BASE_URL: ${{ secrets.NEXT_PUBLIC_AUDIO_BASE_URL }}
+        run: |
+          missing=0
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY NEXT_PUBLIC_AUDIO_BASE_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing repository secret::$name is empty. Add it under Settings > Secrets and variables > Actions."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Configure GitHub Pages
+        # Gives the base path (for example /SleepLabs) and the site URL.
+        id: pages
+        uses: actions/configure-pages@v5
+
       - name: Build with Next.js
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_AUDIO_BASE_URL: ${{ secrets.NEXT_PUBLIC_AUDIO_BASE_URL }}
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: npm run build
+
+      - name: Show site URLs in the job summary
+        # Copy these values into the Supabase function secrets (see supabase/README.md).
+        env:
+          SITE_BASE_URL: ${{ steps.pages.outputs.base_url }}
+          SITE_ORIGIN: ${{ steps.pages.outputs.origin }}
+        run: |
+          {
+            echo "## Site URLs"
+            echo ""
+            echo "- base_url: \`$SITE_BASE_URL\`"
+            echo "- origin: \`$SITE_ORIGIN\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
