@@ -59,6 +59,28 @@ function apiHeaders(token?: string): HeadersInit {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Stop and release an audio element WITHOUT triggering a fake "error" event.
+// Setting `audio.src = ""` makes browsers fire an error event (code 4, "Empty src
+// attribute"), which looks like a load failure. Removing the attribute and calling
+// load() resets the element quietly.
+function releaseAudio(audio: HTMLAudioElement | null) {
+  if (!audio) return;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+}
+
+// Plain-English hint for each browser media error code.
+function describeAudioError(code: number | undefined) {
+  switch (code) {
+    case 1: return "loading was stopped";
+    case 2: return "network problem while downloading";
+    case 3: return "the file could not be decoded (damaged or unsupported audio)";
+    case 4: return "the file was not found, is not public, or is not a format browsers can play (use .mp3)";
+    default: return "unknown problem";
+  }
+}
+
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60).toString().padStart(2, "0");
@@ -274,15 +296,11 @@ export function StudyApp() {
       return;
     }
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
+    releaseAudio(audioRef.current);
 
     maxListenedSecondsRef.current = 0;
     const filename = CONDITION_METADATA[conditionId]?.filename ?? `${conditionId}.mpeg`;
     const audio = new Audio();
-    audio.crossOrigin = "anonymous";
     audio.src = `${AUDIO_BASE_URL}/${filename}`;
     audio.preload = "auto";
     audioRef.current = audio;
@@ -313,10 +331,12 @@ export function StudyApp() {
     });
 
     audio.addEventListener("error", () => {
-      const errDetails = audio.error ? ` [Code ${audio.error.code}: ${audio.error.message}]` : "";
-      console.error("Audio load error:", audio.error);
+      // Ignore errors from an element we already released (no src attribute left).
+      if (!audio.getAttribute("src")) return;
+      const code = audio.error?.code;
+      console.warn(`Audio load error: code ${code ?? "?"} (${describeAudioError(code)}) ${audio.error?.message ?? ""}`);
       setAudioError(
-        `Could not load audio file (${filename})${errDetails}. URL: ${AUDIO_BASE_URL}/${filename}`
+        `Could not load audio file (${filename}): ${describeAudioError(code)}. URL: ${AUDIO_BASE_URL}/${filename}`
       );
     });
   }
@@ -324,10 +344,7 @@ export function StudyApp() {
   // Cleanup audio on unmount.
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
+      releaseAudio(audioRef.current);
     };
   }, []);
 
@@ -416,10 +433,7 @@ export function StudyApp() {
       }
 
       // Only pause and clear audio AFTER qualify-session fetch succeeds
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
+      releaseAudio(audioRef.current);
       setIsPlaying(false);
       setScreen("waiting");
     } catch {
