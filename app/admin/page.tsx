@@ -104,9 +104,11 @@ export default function AdminPage() {
     }
 
     try {
-      // Use Supabase Auth OTP endpoint — only works if the email exists in Auth.
-      // shouldCreateUser: false ensures non-admin emails receive no account creation.
-      const r = await fetch(`${url}/auth/v1/otp`, {
+      // Supabase Auth OTP endpoint. create_user: false means no new account is made for an unknown email.
+      // The redirect goes in the query string (redirect_to), as @supabase/auth-js does.
+      // It must match an entry in Supabase Auth > URL Configuration > Redirect URLs.
+      const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
+      const r = await fetch(`${url}/auth/v1/otp?redirect_to=${redirectTo}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
