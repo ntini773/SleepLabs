@@ -13,7 +13,7 @@ lint    = { cmd = "npm run lint",  description = "Lint and type-check" }
 install = { cmd = "npm install",   description = "Install npm dependencies" }
 
 # Deploy all six edge functions to the linked Supabase project.
-# Run `supabase link --project-ref mgskbqlooctlaentgrez` first.
+# Run `supabase link --project-ref <your-project-ref>` first.
 deploy-functions = { cmd = """
   supabase functions deploy start-session &&
   supabase functions deploy qualify-session &&
