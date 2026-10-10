@@ -13,7 +13,7 @@ lint     = { cmd = "npm run lint",  description = "Lint and type-check" }
 install  = { cmd = "npm install",   description = "Install npm dependencies" }
 supabase = { cmd = "npx --yes supabase", description = "Run Supabase CLI via npx" }
 
-# Deploy all six edge functions to the linked Supabase project.
+# Deploy all seven edge functions to the linked Supabase project.
 # Run `pixi run supabase link --project-ref <your-project-ref>` first.
 deploy-functions = { cmd = """
   npx --yes supabase functions deploy start-session &&
@@ -21,7 +21,8 @@ deploy-functions = { cmd = """
   npx --yes supabase functions deploy study-status &&
   npx --yes supabase functions deploy morning-invitations &&
   npx --yes supabase functions deploy survey-access &&
-  npx --yes supabase functions deploy admin-dashboard
+  npx --yes supabase functions deploy admin-dashboard &&
+  npx --yes supabase functions deploy resend-invitation
 """, description = "Deploy all Supabase edge functions" }
 
 [dependencies]

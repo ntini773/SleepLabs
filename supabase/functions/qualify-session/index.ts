@@ -1,11 +1,22 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, hash, json } from "../_shared/http.ts";
+import { logError } from "../_shared/log.ts";
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-const delaySeconds = Number(Deno.env.get("SURVEY_DELAY_SECONDS") ?? "60");
+// Seconds between qualification and the survey email. A bad value stops this function at start-up.
+function readSurveyDelaySeconds(): number {
+  const raw = Deno.env.get("SURVEY_DELAY_SECONDS")?.trim();
+  if (!raw) return 60;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("SURVEY_DELAY_SECONDS must be a whole number of seconds, 0 or more.");
+  }
+  return value;
+}
+const delaySeconds = readSurveyDelaySeconds();
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -56,14 +67,16 @@ Deno.serve(async (request) => {
     .eq("id", session.id);
 
   if (updateError) {
-    return json({ error: `Could not qualify session: ${updateError.message}` }, 500);
+    logError("qualify-session: update failed:", updateError.message);
+    return json({ error: "Could not save your progress. Please try again." }, 500);
   }
 
-  await admin.from("playback_events").insert({
+  const { error: eventError } = await admin.from("playback_events").insert({
     session_id: session.id,
     event_type: "sleepy",
     position_seconds: Math.floor(numListened),
   });
+  if (eventError) logError("qualify-session: could not log sleepy event:", eventError.message);
 
   return json({ releaseAt });
 });

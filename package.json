@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test:functions": "npx --yes deno test --allow-env --allow-read --import-map=supabase/functions/_tests/import_map.json supabase/functions/_tests/"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",

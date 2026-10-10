@@ -21,7 +21,7 @@ Deno.serve(async (request) => {
   // Fetch sessions with participant join — never return email addresses.
   const { data: sessions } = await admin
     .from("study_sessions")
-    .select("id, participant_id, condition_id, status, listened_seconds, loop_count, qualified_at, created_at")
+    .select("id, participant_id, condition_id, status, listened_seconds, loop_count, qualified_at, created_at, email_attempts")
     .order("created_at", { ascending: false })
     .limit(250);
 
@@ -55,6 +55,7 @@ Deno.serve(async (request) => {
         status: s.status,
         listenedSeconds: s.listened_seconds,
         loopCount: s.loop_count,
+        emailAttempts: s.email_attempts ?? 0,
         surveyComplete: submittedSet.has(s.id),
         qualifiedAt: s.qualified_at,
         createdAt: s.created_at,

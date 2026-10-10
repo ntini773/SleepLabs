@@ -11,12 +11,22 @@ type SessionRow = {
   status: string;
   listenedSeconds: number;
   loopCount: number;
+  emailAttempts: number;
   surveyComplete: boolean;
   qualifiedAt: string | null;
   createdAt: string;
 };
 
 type AdminScreen = "signin" | "check_email" | "dashboard";
+
+// Must match MAX_EMAIL_ATTEMPTS in supabase/functions/morning-invitations/index.ts.
+const MAX_EMAIL_ATTEMPTS = 5;
+
+// A session that is still not sent after the last allowed try needs a person to look at it.
+function needsAttention(row: SessionRow) {
+  const emailSent = row.status === "email_sent" || row.status === "survey_submitted";
+  return !emailSent && row.emailAttempts >= MAX_EMAIL_ATTEMPTS;
+}
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
@@ -94,9 +104,11 @@ export default function AdminPage() {
     }
 
     try {
-      // Use Supabase Auth OTP endpoint — only works if the email exists in Auth.
-      // shouldCreateUser: false ensures non-admin emails receive no account creation.
-      const r = await fetch(`${url}/auth/v1/otp`, {
+      // Supabase Auth OTP endpoint. create_user: false means no new account is made for an unknown email.
+      // The redirect goes in the query string (redirect_to), as @supabase/auth-js does.
+      // It must match an entry in Supabase Auth > URL Configuration > Redirect URLs.
+      const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
+      const r = await fetch(`${url}/auth/v1/otp?redirect_to=${redirectTo}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -194,6 +206,7 @@ export default function AdminPage() {
                     <th>Workshop</th>
                     <th>Condition</th>
                     <th>Status</th>
+                    <th>Email tries</th>
                     <th>Listening</th>
                     <th>Loops</th>
                     <th>Survey</th>
@@ -207,6 +220,10 @@ export default function AdminPage() {
                       <td>{row.workshopStatus === "workshop" ? "Yes" : "No"}</td>
                       <td>{row.conditionId}</td>
                       <td>{row.status}</td>
+                      <td>
+                        {row.emailAttempts}
+                        {needsAttention(row) && <span className="needs-attention"> needs attention</span>}
+                      </td>
                       <td>{formatDuration(row.listenedSeconds)}</td>
                       <td>{row.loopCount}</td>
                       <td>{row.surveyComplete ? "✓" : "—"}</td>

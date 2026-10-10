@@ -20,7 +20,7 @@ Deno.serve(async (request) => {
 
   const { data: session } = await admin
     .from("study_sessions")
-    .select("id, condition_id, duration_seconds, status")
+    .select("id, condition_id, duration_seconds, status, release_at")
     .eq("device_token_hash", await hash(deviceToken))
     .maybeSingle();
 
@@ -29,6 +29,7 @@ Deno.serve(async (request) => {
   const stateMap: Record<string, string> = {
     listening: "listening",
     queued: "waiting",
+    sending: "waiting",
     email_sent: "ready_needs_login",
     survey_submitted: "complete",
     exited: "complete",
@@ -38,5 +39,6 @@ Deno.serve(async (request) => {
     state: stateMap[session.status] ?? "listening",
     conditionId: session.condition_id,
     durationSeconds: session.duration_seconds,
+    releaseAt: session.release_at ?? null,
   });
 });

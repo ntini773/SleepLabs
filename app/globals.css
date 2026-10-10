@@ -71,3 +71,24 @@ h1, .intro, .player-copy, .science-copy { overflow-wrap:anywhere; }
   .form-card { padding:20px 16px; }
   .time-row { font-size:9px; }
 }
+
+/* Shared messages: error text and the "Supabase not configured" warning */
+.error-message { margin:14px 0 0; color:#9a3b32; font-size:14px; line-height:1.5; }
+.config-warning { display:block; margin-top:16px; padding:10px 14px; border:1px solid #efd9ac; border-radius:10px; background:#fbf3e4; color:#7a5214; font-size:12px; line-height:1.5; letter-spacing:0; text-transform:none; }
+
+/* Admin pages: same white card style as the participant pages */
+.admin-shell { min-height:100vh; width:min(100%, 1100px); margin:0 auto; padding:48px clamp(20px, 5vw, 64px) 64px; color:var(--ink); background:var(--paper); }
+.admin-shell h1 { font-size:clamp(40px, 6vw, 64px); }
+.admin-signin { display:grid; gap:14px; width:min(100%, 440px); margin:clamp(40px, 12vh, 120px) auto 0; }
+.admin-signin h1 { margin-top:0; }
+.admin-signin p { margin:0; color:#516067; font-size:15px; line-height:1.6; }
+.admin-signin form { display:grid; gap:16px; margin-top:8px; }
+.admin-signin label { display:grid; gap:7px; color:#435158; font-size:13px; }
+.admin-signin input { width:100%; min-width:0; border:1px solid #cbd5d3; border-radius:8px; background:rgba(255,255,255,.72); color:var(--ink); padding:12px; }
+.admin-signin .button { justify-self:start; }
+.admin-table { width:100%; margin-top:24px; overflow-x:auto; border:1px solid rgba(185,202,201,.7); border-radius:14px; background:var(--card); box-shadow:0 12px 35px rgba(76,98,100,.04); }
+.admin-table table { width:100%; border-collapse:collapse; font-size:13px; }
+.admin-table th, .admin-table td { padding:11px 14px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
+.admin-table th { color:var(--muted); font-family:"DM Mono",monospace; font-size:10px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; }
+.admin-table tr:last-child td { border-bottom:0; }
+.needs-attention { margin-left:6px; color:#9a3b32; font-family:"DM Mono",monospace; font-size:10px; letter-spacing:.06em; text-transform:uppercase; }

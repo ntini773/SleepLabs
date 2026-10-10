@@ -59,6 +59,28 @@ function apiHeaders(token?: string): HeadersInit {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Stop and release an audio element WITHOUT triggering a fake "error" event.
+// Setting `audio.src = ""` makes browsers fire an error event (code 4, "Empty src
+// attribute"), which looks like a load failure. Removing the attribute and calling
+// load() resets the element quietly.
+function releaseAudio(audio: HTMLAudioElement | null) {
+  if (!audio) return;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+}
+
+// Plain-English hint for each browser media error code.
+function describeAudioError(code: number | undefined) {
+  switch (code) {
+    case 1: return "loading was stopped";
+    case 2: return "network problem while downloading";
+    case 3: return "the file could not be decoded (damaged or unsupported audio)";
+    case 4: return "the file was not found, is not public, or is not a format browsers can play (use .mp3)";
+    default: return "unknown problem";
+  }
+}
+
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60).toString().padStart(2, "0");
@@ -156,16 +178,19 @@ export function StudyApp() {
   // UI state
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  // Test-only skip button. Shown only in a build with NEXT_PUBLIC_ENABLE_TEST_MODE=1 and ?test=1.
+  const [isTestMode, setIsTestMode] = useState(false);
+
+  // Survey release time (qualified_at + SURVEY_DELAY_SECONDS) and the "Resend email" button
+  const [releaseAt, setReleaseAt] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendNotice, setResendNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
-    if (
-      searchParams.get("admin") === "true" ||
-      searchParams.get("test") === "1" ||
-      searchParams.get("dev") === "1"
-    ) {
-      setIsAdminMode(true);
+    if (process.env.NEXT_PUBLIC_ENABLE_TEST_MODE === "1" && searchParams.get("test") === "1") {
+      setIsTestMode(true);
     }
   }, []);
 
@@ -210,6 +235,7 @@ export function StudyApp() {
               durationSeconds: data.durationSeconds ?? 0,
             };
             setParticipant(p);
+            if (typeof data.releaseAt === "string") setReleaseAt(data.releaseAt);
             if (data.state === "listening") {
               setScreen("listen");
             } else if (data.state === "waiting") {
@@ -270,15 +296,11 @@ export function StudyApp() {
       return;
     }
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
+    releaseAudio(audioRef.current);
 
     maxListenedSecondsRef.current = 0;
     const filename = CONDITION_METADATA[conditionId]?.filename ?? `${conditionId}.mpeg`;
     const audio = new Audio();
-    audio.crossOrigin = "anonymous";
     audio.src = `${AUDIO_BASE_URL}/${filename}`;
     audio.preload = "auto";
     audioRef.current = audio;
@@ -309,10 +331,12 @@ export function StudyApp() {
     });
 
     audio.addEventListener("error", () => {
-      const errDetails = audio.error ? ` [Code ${audio.error.code}: ${audio.error.message}]` : "";
-      console.error("Audio load error:", audio.error);
+      // Ignore errors from an element we already released (no src attribute left).
+      if (!audio.getAttribute("src")) return;
+      const code = audio.error?.code;
+      console.warn(`Audio load error: code ${code ?? "?"} (${describeAudioError(code)}) ${audio.error?.message ?? ""}`);
       setAudioError(
-        `Could not load audio file (${filename})${errDetails}. URL: ${AUDIO_BASE_URL}/${filename}`
+        `Could not load audio file (${filename}): ${describeAudioError(code)}. URL: ${AUDIO_BASE_URL}/${filename}`
       );
     });
   }
@@ -320,10 +344,7 @@ export function StudyApp() {
   // Cleanup audio on unmount.
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
+      releaseAudio(audioRef.current);
     };
   }, []);
 
@@ -345,7 +366,11 @@ export function StudyApp() {
       });
       const data = await r.json();
       if (!r.ok) {
-        if (r.status === 409) { setScreen("already_registered"); return; }
+        if (r.status === 409) {
+          setResendNotice(null);
+          setScreen("already_registered");
+          return;
+        }
         setError(data.error ?? "Could not start session.");
         return;
       }
@@ -386,7 +411,6 @@ export function StudyApp() {
     setError(null);
 
     const listenedSeconds = maxListenedSecondsRef.current;
-    const lc = loopCount || 1;
 
     try {
       if (SUPABASE_URL && SUPABASE_ANON_KEY && participant) {
@@ -396,7 +420,7 @@ export function StudyApp() {
           body: JSON.stringify({
             deviceToken: participant.deviceToken,
             listenedSeconds,
-            loopCount: lc,
+            loopCount, // Only real repeats. The audio never repeated if this is 0.
           }),
         });
         const data = await r.json();
@@ -405,19 +429,99 @@ export function StudyApp() {
           setBusy(false);
           return;
         }
+        if (typeof data.releaseAt === "string") setReleaseAt(data.releaseAt);
       }
 
       // Only pause and clear audio AFTER qualify-session fetch succeeds
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
+      releaseAudio(audioRef.current);
       setIsPlaying(false);
       setScreen("waiting");
     } catch {
       setError("Network error during qualification. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Tick once a second on the waiting screen so the Resend button appears when the wait is over.
+  useEffect(() => {
+    if (screen !== "waiting" || !releaseAt) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [screen, releaseAt]);
+
+  // -------------------------------------------------------------------------
+  // Resend the survey email.
+  // "device": waiting screen, identified by the device token.
+  // "details": already-registered screen, identified by the email / roll number typed.
+  // The server always sends to the email saved at registration, and only after the wait time.
+  // -------------------------------------------------------------------------
+  async function resendInvitation(mode: "device" | "details") {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setResendNotice({ kind: "error", text: "Supabase is not configured." });
+      return;
+    }
+    setResendBusy(true);
+    setResendNotice(null);
+    try {
+      const payload =
+        mode === "device" && participant
+          ? { deviceToken: participant.deviceToken }
+          : { email, rollNumber: workshop === "yes" ? rollNumber : "" };
+      const r = await fetch(apiUrl("resend-invitation"), {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(() => ({}));
+      switch (data.status) {
+        case "sent":
+          setResendNotice({
+            kind: "info",
+            text: "A fresh link is on its way. It can take a minute, and it may land in spam or junk. Please use the newest email only.",
+          });
+          break;
+        case "submitted":
+          setResendNotice({ kind: "info", text: "Your reflection is already complete. Thank you!" });
+          break;
+        case "too_early": {
+          const when = data.availableAt
+            ? new Date(data.availableAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+            : "the release time";
+          setResendNotice({ kind: "info", text: `Your reflection email is not due yet. It will be sent after ${when}.` });
+          break;
+        }
+        case "pending":
+          setResendNotice({
+            kind: "info",
+            text: "Your reflection email is being sent right now. Please check your inbox (and spam) and try again in a minute or two if it has not arrived.",
+          });
+          break;
+        case "not_ready":
+          setResendNotice({
+            kind: "info",
+            text: "No reflection email is due yet. It is sent after you finish listening and the release time has passed. If you have not finished listening, return on the device you started with.",
+          });
+          break;
+        case "too_soon": {
+          const mins = Math.max(1, Math.ceil((data.retryAfterSeconds ?? 300) / 60));
+          setResendNotice({
+            kind: "info",
+            text: `We sent one a moment ago. Please wait about ${mins} minute${mins === 1 ? "" : "s"} before asking again.`,
+          });
+          break;
+        }
+        case "limit":
+          setResendNotice({ kind: "error", text: "You have reached the resend limit. Please contact the study team." });
+          break;
+        default:
+          setResendNotice({ kind: "error", text: data.error ?? "Could not resend the email. Please try again in a moment." });
+      }
+    } catch {
+      setResendNotice({ kind: "error", text: "Network error. Please check your connection." });
+    } finally {
+      setResendBusy(false);
     }
   }
 
@@ -605,6 +709,15 @@ export function StudyApp() {
             A session already exists for these details. Return on the same device you used to start,
             or use the secure link in your invitation email.
           </p>
+          <button className="button primary" disabled={resendBusy} onClick={() => resendInvitation("details")} type="button">
+            {resendBusy ? "Sending…" : "Didn't get the email? Resend it"}
+          </button>
+          {resendNotice && (
+            <p className={resendNotice.kind === "error" ? "error-message" : "microcopy"} role="status">
+              {resendNotice.text}
+            </p>
+          )}
+          <p className="microcopy">The link goes to the email address you registered with.</p>
         </section>
       )}
 
@@ -662,14 +775,13 @@ export function StudyApp() {
                 {busy ? "Saving…" : <>I&apos;m sleepy <span aria-hidden="true">→</span></>}
               </button>
             )}
-            {isAdminMode && !isLooping && (
+            {process.env.NEXT_PUBLIC_ENABLE_TEST_MODE === "1" && isTestMode && !isLooping && (
               <button
                 className="text-button admin-skip-button"
                 onClick={() => {
                   maxListenedSecondsRef.current = requiredPoint;
                   setElapsed(requiredPoint);
                   setIsLooping(true);
-                  setLoopCount(1);
                   if (audioRef.current) {
                     try {
                       audioRef.current.currentTime = requiredPoint;
@@ -697,6 +809,25 @@ export function StudyApp() {
             Your reflection will unlock shortly. Return on this device after signing in, or use the
             secure link you receive by email.
           </p>
+          {participant?.deviceToken && releaseAt && (
+            now >= Date.parse(releaseAt) ? (
+              <>
+                <button className="button primary" disabled={resendBusy} onClick={() => resendInvitation("device")} type="button">
+                  {resendBusy ? "Sending…" : "Didn't get the email? Resend it"}
+                </button>
+                {resendNotice && (
+                  <p className={resendNotice.kind === "error" ? "error-message" : "microcopy"} role="status">
+                    {resendNotice.text}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="microcopy">
+                If your email has not arrived, you can ask for a new one after{" "}
+                {new Date(releaseAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.
+              </p>
+            )
+          )}
           {error && <p className="error-message" role="alert">{error}</p>}
         </section>
       )}
